@@ -72,16 +72,7 @@ class PdoUserRepository implements UserRepositoryInterface
                 ':created_at' => $user->createdAt->format('c'), // ISO 8601
             ]);
         } else {
-            // Update existing user if needed
-            $stmt = $this->pdo->prepare(
-                'UPDATE users SET username = :username, password_hash = :password_hash WHERE id = :id'
-            );
-
-            $stmt->execute([
-                ':username' => $user->username,
-                ':password_hash' => $user->passwordHash,
-                ':id' => $user->id,
-            ]);
+            throw new \LogicException('User ID ' . $user->id . ' already exists.');
         }
     }
 

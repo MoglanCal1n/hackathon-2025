@@ -77,12 +77,10 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
 
         $statement = $this->pdo->prepare($sql);
 
-        // Bind the criteria values
         foreach ($params as $param => $value) {
             $statement->bindValue($param, $value);
         }
 
-        // Bind limit and offset as integers explicitly
         $statement->bindValue(':limit', $limit, PDO::PARAM_INT);
         $statement->bindValue(':from', $from, PDO::PARAM_INT);
 
@@ -159,7 +157,6 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
 
         $statement->execute();
 
-        // Return array of [category => sum]
         $results = [];
         while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
             $results[$row['category']] = (int) $row['total_cents'];
