@@ -35,7 +35,21 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
 
     public function save(Expense $expense): void
     {
-        // TODO: Implement save() method.
+        if ($expense->id === null) {
+            $statement = $this->pdo->prepare(
+                'INSERT INTO expenses (user_id, date, category, amount_cents, description)
+                        Values (:user_id, :date, :category, :amount_cents, :description)'
+            );
+            $statement->execute([
+                ':user_id'      => $expense->userId,
+                ':date'         => $expense->date->format('c'), // ISO-8601 string
+                ':category'     => $expense->category,
+                ':amount_cents' => $expense->amountCents,
+                ':description'  => $expense->description,
+            ]);
+        } else {
+            throw new \LogicException('Expense with id ' . $expense->id . ' already exists.');
+        }
     }
 
     public function delete(int $id): void
@@ -46,40 +60,175 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
 
     public function findBy(array $criteria, int $from, int $limit): array
     {
-        // TODO: Implement findBy() method.
-        return [];
-    }
+        $sql = 'SELECT * FROM expenses';
+        $params = [];
+        $conditions = [];
 
+        foreach ($criteria as $key => $value) {
+            $conditions[] = "$key = :$key";
+            $params[":$key"] = $value;
+        }
+
+        if ($conditions) {
+            $sql .= ' WHERE ' . implode(' AND ', $conditions);
+        }
+
+        $sql .= ' ORDER BY date DESC LIMIT :limit OFFSET :from';
+
+        $statement = $this->pdo->prepare($sql);
+
+        // Bind the criteria values
+        foreach ($params as $param => $value) {
+            $statement->bindValue($param, $value);
+        }
+
+        // Bind limit and offset as integers explicitly
+        $statement->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $statement->bindValue(':from', $from, PDO::PARAM_INT);
+
+        $statement->execute();
+
+        $expensesData = $statement->fetchAll();
+
+        $expenses = [];
+        foreach ($expensesData as $data) {
+            $expenses[] = $this->createExpenseFromData($data);
+        }
+
+        return $expenses;
+    }
 
     public function countBy(array $criteria): int
     {
-        // TODO: Implement countBy() method.
-        return 0;
+        $sql = 'SELECT COUNT(*) FROM expenses';
+        $params = [];
+        $conditions = [];
+
+        foreach ($criteria as $key => $value) {
+            $conditions[] = "$key = :$key";
+            $params[":$key"] = $value;
+        }
+
+        if ($conditions) {
+            $sql .= ' WHERE ' . implode(' AND ', $conditions);
+        }
+
+        $statement = $this->pdo->prepare($sql);
+
+        foreach ($params as $param => $value) {
+            $statement->bindValue($param, $value);
+        }
+
+        $statement->execute();
+
+        return (int) $statement->fetchColumn();
     }
 
     public function listExpenditureYears(User $user): array
     {
-        // TODO: Implement listExpenditureYears() method.
-        return [];
+        $sql = 'SELECT DISTINCT strftime(\'%Y\', date) AS year FROM expenses WHERE user_id = :user_id ORDER BY year DESC';
+
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute([':user_id' => $user->id]);
+
+        return $statement->fetchAll(PDO::FETCH_COLUMN);
     }
 
     public function sumAmountsByCategory(array $criteria): array
     {
-        // TODO: Implement sumAmountsByCategory() method.
-        return [];
+        $sql = 'SELECT category, SUM(amount_cents) AS total_cents FROM expenses';
+        $params = [];
+        $conditions = [];
+
+        foreach ($criteria as $key => $value) {
+            $conditions[] = "$key = :$key";
+            $params[":$key"] = $value;
+        }
+
+        if ($conditions) {
+            $sql .= ' WHERE ' . implode(' AND ', $conditions);
+        }
+
+        $sql .= ' GROUP BY category';
+
+        $statement = $this->pdo->prepare($sql);
+
+        foreach ($params as $param => $value) {
+            $statement->bindValue($param, $value);
+        }
+
+        $statement->execute();
+
+        // Return array of [category => sum]
+        $results = [];
+        while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
+            $results[$row['category']] = (int) $row['total_cents'];
+        }
+
+        return $results;
     }
 
     public function averageAmountsByCategory(array $criteria): array
     {
-        // TODO: Implement averageAmountsByCategory() method.
-        return [];
+        $sql = 'SELECT category, AVG(amount_cents) AS average_cents FROM expenses';
+        $params = [];
+        $conditions = [];
+
+        foreach ($criteria as $key => $value) {
+            $conditions[] = "$key = :$key";
+            $params[":$key"] = $value;
+        }
+
+        if ($conditions) {
+            $sql .= ' WHERE ' . implode(' AND ', $conditions);
+        }
+
+        $sql .= ' GROUP BY category';
+
+        $statement = $this->pdo->prepare($sql);
+
+        foreach ($params as $param => $value) {
+            $statement->bindValue($param, $value);
+        }
+
+        $statement->execute();
+
+        $results = [];
+        while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
+            $results[$row['category']] = (int) $row['average_cents'];
+        }
+
+        return $results;
     }
 
     public function sumAmounts(array $criteria): float
     {
-        // TODO: Implement sumAmounts() method.
-        return 0;
+        $sql = 'SELECT SUM(amount_cents) FROM expenses';
+        $params = [];
+        $conditions = [];
+
+        foreach ($criteria as $key => $value) {
+            $conditions[] = "$key = :$key";
+            $params[":$key"] = $value;
+        }
+
+        if ($conditions) {
+            $sql .= ' WHERE ' . implode(' AND ', $conditions);
+        }
+
+        $statement = $this->pdo->prepare($sql);
+
+        foreach ($params as $param => $value) {
+            $statement->bindValue($param, $value);
+        }
+
+        $statement->execute();
+
+        $sum = $statement->fetchColumn();
+
+        return $sum !== null ? (int) $sum : 0;
     }
+
 
     /**
      * @throws Exception
