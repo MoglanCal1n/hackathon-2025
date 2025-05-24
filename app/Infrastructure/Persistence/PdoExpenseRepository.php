@@ -38,7 +38,7 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
         if ($expense->id === null) {
             $statement = $this->pdo->prepare(
                 'INSERT INTO expenses (user_id, date, category, amount_cents, description)
-                        Values (:user_id, :date, :category, :amount_cents, :description)'
+             VALUES (:user_id, :date, :category, :amount_cents, :description)'
             );
             $statement->execute([
                 ':user_id'      => $expense->userId,
@@ -47,10 +47,25 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
                 ':amount_cents' => $expense->amountCents,
                 ':description'  => $expense->description,
             ]);
+
+            $expense->id = (int) $this->pdo->lastInsertId();
         } else {
-            throw new \LogicException('Expense with id ' . $expense->id . ' already exists.');
+            $statement = $this->pdo->prepare(
+                'UPDATE expenses 
+             SET user_id = :user_id, date = :date, category = :category, amount_cents = :amount_cents, description = :description
+             WHERE id = :id'
+            );
+            $statement->execute([
+                ':user_id'      => $expense->userId,
+                ':date'         => $expense->date->format('c'),
+                ':category'     => $expense->category,
+                ':amount_cents' => $expense->amountCents,
+                ':description'  => $expense->description,
+                ':id'           => $expense->id,
+            ]);
         }
     }
+
 
     public function delete(int $id): void
     {
@@ -65,8 +80,18 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
         $conditions = [];
 
         foreach ($criteria as $key => $value) {
-            $conditions[] = "$key = :$key";
-            $params[":$key"] = $value;
+            if (preg_match('/^(\w+)\s*(>=|<=|<>|!=|=|<|>)$/', $key, $matches)) {
+                $column = $matches[1];
+                $operator = $matches[2];
+                $paramName = ':' . str_replace([' ', '>', '<', '=', '!',], '_', $key);
+                $conditions[] = "$column $operator $paramName";
+                $params[$paramName] = $value;
+            } else {
+                // Default equality
+                $paramName = ':' . $key;
+                $conditions[] = "$key = $paramName";
+                $params[$paramName] = $value;
+            }
         }
 
         if ($conditions) {
@@ -95,6 +120,7 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
 
         return $expenses;
     }
+
 
     public function countBy(array $criteria): int
     {
@@ -201,7 +227,7 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
 
         $results = [];
         while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
-            $results[$row['category']] = (int) $row['average_cents'];
+            $results[$row['category']] = floatval($row['average_cents']);
         }
 
         return $results;
@@ -232,7 +258,7 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
 
         $sum = $statement->fetchColumn();
 
-        return $sum !== null ? (int) $sum : 0;
+        return $sum !== null ? (float) $sum : 0;
     }
 
 

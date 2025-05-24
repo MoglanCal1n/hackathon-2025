@@ -15,19 +15,57 @@ class MonthlySummaryService
 
     public function computeTotalExpenditure(User $user, int $year, int $month): float
     {
-        // TODO: compute expenses total for year-month for a given user
-        return 0;
+        $startDate = new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+        $endDate = $startDate->modify('first day of next month');
+
+        $criteria = [
+            'user_id' => $user->id,
+            'date_from' => $startDate->format('c'),
+            'date_to' => $endDate->format('c'),
+        ];
+
+        $totalCents = $this->expenses->sumAmounts($criteria);
+        return $totalCents / 100;
     }
 
     public function computePerCategoryTotals(User $user, int $year, int $month): array
     {
-        // TODO: compute totals for year-month for a given user
-        return [];
+        $startDate = new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+        $endDate = $startDate->modify('first day of next month');
+
+        $criteria = [
+            'user_id' => $user->id,
+            'date_from' => $startDate->format('c'),
+            'date_to' => $endDate->format('c'),
+        ];
+
+        $totalsCents = $this->expenses->sumAmountsByCategory($criteria);
+        $totals = [];
+        foreach ($totalsCents as $category => $cents) {
+            $totals[$category] = (float) ($cents / 100);
+        }
+
+        return $totals;
     }
+
 
     public function computePerCategoryAverages(User $user, int $year, int $month): array
     {
-        // TODO: compute averages for year-month for a given user
-        return [];
+        $startDate = new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+        $endDate = $startDate->modify('first day of next month');
+
+        $criteria = [
+            'user_id' => $user->id,
+            'date_from' => $startDate->format('c'),
+            'date_to' => $endDate->format('c'),
+        ];
+
+        $averagesCents = $this->expenses->averageAmountsByCategory($criteria);
+        $averages = [];
+        foreach ($averagesCents as $category => $cents) {
+            $averages[$category] = $cents / 100;
+        }
+
+        return $averages;
     }
 }

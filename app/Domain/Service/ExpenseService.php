@@ -8,19 +8,35 @@ use App\Domain\Entity\Expense;
 use App\Domain\Entity\User;
 use App\Domain\Repository\ExpenseRepositoryInterface;
 use DateTimeImmutable;
+use PDO;
 use Psr\Http\Message\UploadedFileInterface;
 
 class ExpenseService
 {
     public function __construct(
         private readonly ExpenseRepositoryInterface $expenses,
+        private readonly PDO $pdo
     ) {}
 
     public function list(User $user, int $year, int $month, int $pageNumber, int $pageSize): array
     {
-        // TODO: implement this and call from controller to obtain paginated list of expenses
-        return [];
+        $pageNumber = max(1, $pageNumber);
+        $pageSize = max(1, $pageSize);
+
+        $startDate = new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+        $endDate = $startDate->modify('+1 month');
+        $offset = ($pageNumber - 1) * $pageSize;
+
+        $criteria = [
+            'user_id' => $user->id,
+            'date >=' => $startDate->format('c'),
+            'date <' => $endDate->format('c'),
+        ];
+
+        return $this->expenses->findBy($criteria, $offset, $pageSize);
     }
+
+
 
     public function create(
         User $user,
@@ -28,12 +44,31 @@ class ExpenseService
         string $description,
         DateTimeImmutable $date,
         string $category,
-    ): void {
-        // TODO: implement this to create a new expense entity, perform validation, and persist
+    ): Expense{
+        if ($amount <= 0) {
+            throw new \InvalidArgumentException('Amount must be positive.');
+        }
+        if (trim($description) === '') {
+            throw new \InvalidArgumentException('Description cannot be empty.');
+        }
+        if (trim($category) === '') {
+            throw new \InvalidArgumentException('Category cannot be empty.');
+        }
 
-        // TODO: here is a code sample to start with
-        $expense = new Expense(null, $user->id, $date, $category, (int)$amount, $description);
+        $amountCents = (int) round($amount * 100);
+
+        $expense = new Expense(
+            null,
+            $user->id,
+            $date,
+            $category,
+            $amountCents,
+            $description
+        );
+
         $this->expenses->save($expense);
+
+        return $expense;
     }
 
     public function update(
@@ -43,14 +78,89 @@ class ExpenseService
         DateTimeImmutable $date,
         string $category,
     ): void {
-        // TODO: implement this to update expense entity, perform validation, and persist
+        if ($amount <= 0) {
+            throw new \InvalidArgumentException('Amount must be positive.');
+        }
+        if (trim($description) === '') {
+            throw new \InvalidArgumentException('Description cannot be empty.');
+        }
+        if (trim($category) === '') {
+            throw new \InvalidArgumentException('Category cannot be empty.');
+        }
+
+        $expense->amountCents = (int) round($amount * 100);
+        $expense->description = $description;
+        $expense->date = $date;
+        $expense->category = $category;
+
+        $this->expenses->save($expense);
     }
 
     public function importFromCsv(User $user, UploadedFileInterface $csvFile): int
     {
-        // TODO: process rows in file stream, create and persist entities
-        // TODO: for extra points wrap the whole import in a transaction and rollback only in case writing to DB fails
+        $stream = $csvFile->getStream();
+        $stream->rewind();
 
-        return 0; // number of imported rows
+        $importedCount = 0;
+
+        try {
+            $this->pdo->beginTransaction();
+
+            $header = null;
+
+            while (!$stream->eof()) {
+                $line = trim($stream->readLine() ?: '');
+
+                if ($line === '') {
+                    continue;
+                }
+
+                $row = str_getcsv($line);
+
+                if ($header === null) {
+                    $header = $row;
+                    continue;
+                }
+
+                $data = array_combine($header, $row);
+
+                if (
+                    empty($data['date']) ||
+                    empty($data['category']) ||
+                    empty($data['amount'])
+                ) {
+                    continue;
+                }
+
+                $date = \DateTimeImmutable::createFromFormat('Y-m-d', $data['date']);
+                if ($date === false) {
+                    continue;
+                }
+
+                $amount = (float) $data['amount'];
+                $description = $data['description'] ?? '';
+
+                $expense = new Expense(
+                    null,
+                    $user->id,
+                    $date,
+                    $data['category'],
+                    (int) ($amount * 100),
+                    $description,
+                );
+
+                $this->expenses->save($expense);
+
+                $importedCount++;
+            }
+
+            $this->pdo->commit();
+
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+
+        return $importedCount;
     }
 }
