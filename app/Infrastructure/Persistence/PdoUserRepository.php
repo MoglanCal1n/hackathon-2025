@@ -37,14 +37,52 @@ class PdoUserRepository implements UserRepositoryInterface
         );
     }
 
+
     public function findByUsername(string $username): ?User
     {
-        // TODO: Implement findByUsername() method.
-        return null;
+        $sql = 'SELECT * FROM users WHERE username = :username LIMIT 1';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([':username' => $username]);
+        $data = $stmt->fetch();
+
+        if ($data === false) {
+            return null;
+        }
+
+        return new User(
+            $data['id'],
+            $data['username'],
+            $data['password_hash'],
+            new DateTimeImmutable($data['created_at'])
+        );
     }
+
 
     public function save(User $user): void
     {
-        // TODO: Implement save() method.
+        if ($user->id === null) {
+            $stmt = $this->pdo->prepare(
+                'INSERT INTO users (username, password_hash, created_at) 
+             VALUES (:username, :password_hash, :created_at)'
+            );
+
+            $stmt->execute([
+                ':username' => $user->username,
+                ':password_hash' => $user->passwordHash,
+                ':created_at' => $user->createdAt->format('c'), // ISO 8601
+            ]);
+        } else {
+            // Update existing user if needed
+            $stmt = $this->pdo->prepare(
+                'UPDATE users SET username = :username, password_hash = :password_hash WHERE id = :id'
+            );
+
+            $stmt->execute([
+                ':username' => $user->username,
+                ':password_hash' => $user->passwordHash,
+                ':id' => $user->id,
+            ]);
+        }
     }
+
 }
