@@ -6,6 +6,7 @@ namespace App;
 
 use App\Domain\Repository\ExpenseRepositoryInterface;
 use App\Domain\Repository\UserRepositoryInterface;
+use App\Domain\Service\CategoryBudgetConfig;
 use App\Infrastructure\Persistence\PdoExpenseRepository;
 use App\Infrastructure\Persistence\PdoUserRepository;
 use DI\ContainerBuilder;
@@ -26,26 +27,32 @@ class Kernel
 {
     public static function createApp(): App
     {
-        // Configure the DI container builder and build the DI container
         $builder = new ContainerBuilder();
-        $builder->useAutowiring(true);  // Enable autowiring explicitly
+        $builder->useAutowiring(true);
 
         $builder->addDefinitions([
-            // Define a factory for the Monolog logger with a stream handler that writes to var/app.log
-            LoggerInterface::class            => function () {
+            LoggerInterface::class => function () {
                 $logger = new Logger('app');
                 $logger->pushHandler(new StreamHandler(__DIR__.'/../var/app.log', Level::Debug));
 
                 return $logger;
             },
 
-            // Define a factory for Twig view renderer
-            Twig::class                       => function () {
+            CategoryBudgetConfig::class => function () {
+                $json = $_ENV['CATEGORY_BUDGETS_JSON'] ?? null;
+
+                if (!$json) {
+                    throw new \RuntimeException("CATEGORY_BUDGETS_JSON is not set in .env");
+                }
+
+                return new CategoryBudgetConfig($json);
+            },
+
+            Twig::class => function () {
                 return Twig::create(__DIR__.'/../templates', ['cache' => false]);
             },
 
-            // Define a factory for PDO database connection
-            PDO::class                        => factory(function () {
+            PDO::class => factory(function () {
                 static $pdo = null;
                 if ($pdo === null) {
                     $pdo = new PDO('sqlite:'.$_ENV['DB_PATH']);
@@ -56,24 +63,27 @@ class Kernel
                 return $pdo;
             }),
 
-            // Map interfaces to concrete implementations
-            UserRepositoryInterface::class    => autowire(PdoUserRepository::class),
+            UserRepositoryInterface::class => autowire(PdoUserRepository::class),
             ExpenseRepositoryInterface::class => autowire(PdoExpenseRepository::class),
         ]);
+
         $container = $builder->build();
 
-        // Create an application instance and configure
         AppFactory::setContainer($container);
         $app = AppFactory::create();
         $app->add(TwigMiddleware::createFromContainer($app, Twig::class));
         (require __DIR__.'/../config/settings.php')($app);
         (require __DIR__.'/../config/routes.php')($app);
 
-        // TODO: Handle session initialization
+        $app->add(function ($request, $handler) {
+            if (session_status() !== PHP_SESSION_ACTIVE) {
+                session_start();
+            }
 
-        // Make current user ID globally available to twig templates
-        // TODO: change the following line to set the user ID stored in the session, for when user is logged
-        $loggedInUserId = null;
+            return $handler->handle($request);
+        });
+
+        $loggedInUserId = $_SESSION['user_id'] ?? null;
         $twig = $container->get(Twig::class);
         $twig->getEnvironment()->addGlobal('currentUserId', $loggedInUserId);
 

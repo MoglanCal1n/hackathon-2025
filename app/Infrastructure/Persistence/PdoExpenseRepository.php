@@ -42,7 +42,7 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
             );
             $statement->execute([
                 ':user_id'      => $expense->userId,
-                ':date'         => $expense->date->format('c'), // ISO-8601 string
+                ':date'         => $expense->date->format('c'),
                 ':category'     => $expense->category,
                 ':amount_cents' => $expense->amountCents,
                 ':description'  => $expense->description,
@@ -66,7 +66,6 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
         }
     }
 
-
     public function delete(int $id): void
     {
         $statement = $this->pdo->prepare('DELETE FROM expenses WHERE id=?');
@@ -87,7 +86,6 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
                 $conditions[] = "$column $operator $paramName";
                 $params[$paramName] = $value;
             } else {
-                // Default equality
                 $paramName = ':' . $key;
                 $conditions[] = "$key = $paramName";
                 $params[$paramName] = $value;
@@ -120,7 +118,6 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
 
         return $expenses;
     }
-
 
     public function countBy(array $criteria): int
     {
@@ -199,7 +196,6 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
         return $results;
     }
 
-
     public function averageAmountsByCategory(array $criteria): array
     {
         $sql = 'SELECT category, AVG(amount_cents) AS average_cents FROM expenses';
@@ -260,7 +256,6 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
 
         return $sum !== null ? (float) $sum : 0;
     }
-
 
     /**
      * @throws Exception

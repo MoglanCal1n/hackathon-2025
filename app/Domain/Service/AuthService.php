@@ -20,6 +20,8 @@ class AuthService
             throw new \RuntimeException("Username '$username' is already taken.");
         }
 
+
+
         $passwordHash = password_hash($password, PASSWORD_DEFAULT);
 
         $user = new User(null, $username, $passwordHash, new \DateTimeImmutable());

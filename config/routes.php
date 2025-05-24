@@ -21,6 +21,7 @@ return static function (App $app) {
             $expense->get('/create', [ExpenseController::class, 'create']);
             $expense->post('', [ExpenseController::class, 'store']);
             $expense->get('/{id}/edit', [ExpenseController::class, 'edit']);
+            $expense->post('/import', [ExpenseController::class, 'import']);
             $expense->post('/{id}', [ExpenseController::class, 'update']);
             $expense->post('/{id}/delete', [ExpenseController::class, 'destroy']);
         });

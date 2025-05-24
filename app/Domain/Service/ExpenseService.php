@@ -36,15 +36,13 @@ class ExpenseService
         return $this->expenses->findBy($criteria, $offset, $pageSize);
     }
 
-
-
     public function create(
         User $user,
         float $amount,
         string $description,
         DateTimeImmutable $date,
         string $category,
-    ): Expense{
+    ): Expense {
         if ($amount <= 0) {
             throw new \InvalidArgumentException('Amount must be positive.');
         }
@@ -96,10 +94,16 @@ class ExpenseService
         $this->expenses->save($expense);
     }
 
+    public function delete(int $id): void
+    {
+        $this->expenses->delete($id);
+    }
+
     public function importFromCsv(User $user, UploadedFileInterface $csvFile): int
     {
         $stream = $csvFile->getStream();
         $stream->rewind();
+        $resource = $stream->detach();
 
         $importedCount = 0;
 
@@ -108,14 +112,10 @@ class ExpenseService
 
             $header = null;
 
-            while (!$stream->eof()) {
-                $line = trim($stream->readLine() ?: '');
-
-                if ($line === '') {
+            while (($row = fgetcsv($resource)) !== false) {
+                if (empty(array_filter($row))) {
                     continue;
                 }
-
-                $row = str_getcsv($line);
 
                 if ($header === null) {
                     $header = $row;
@@ -150,17 +150,24 @@ class ExpenseService
                 );
 
                 $this->expenses->save($expense);
-
                 $importedCount++;
             }
 
             $this->pdo->commit();
-
         } catch (\Throwable $e) {
             $this->pdo->rollBack();
             throw $e;
+        } finally {
+            if (is_resource($resource)) {
+                fclose($resource);
+            }
         }
 
         return $importedCount;
+    }
+
+    public function findById(int $id): ?Expense
+    {
+        return $this->expenses->find($id);
     }
 }
