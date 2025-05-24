@@ -138,9 +138,17 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
         $params = [];
         $conditions = [];
 
-        foreach ($criteria as $key => $value) {
-            $conditions[] = "$key = :$key";
-            $params[":$key"] = $value;
+        if (isset($criteria['user_id'])) {
+            $conditions[] = 'user_id = :user_id';
+            $params[':user_id'] = $criteria['user_id'];
+        }
+        if (isset($criteria['date_from'])) {
+            $conditions[] = 'date >= :date_from';
+            $params[':date_from'] = $criteria['date_from'];
+        }
+        if (isset($criteria['date_to'])) {
+            $conditions[] = 'date < :date_to';
+            $params[':date_to'] = $criteria['date_to'];
         }
 
         if ($conditions) {
@@ -164,6 +172,7 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
 
         return $results;
     }
+
 
     public function averageAmountsByCategory(array $criteria): array
     {
