@@ -18,6 +18,9 @@ class ExpenseService
         private readonly PDO $pdo
     ) {}
 
+    /**
+     * @throws \DateMalformedStringException
+     */
     public function list(User $user, int $year, int $month, int $pageNumber, int $pageSize): array
     {
         $pageNumber = max(1, $pageNumber);
@@ -29,11 +32,19 @@ class ExpenseService
 
         $criteria = [
             'user_id' => $user->id,
-            'date >=' => $startDate->format('c'),
-            'date <' => $endDate->format('c'),
+            'date >=' => $startDate->format('Y-m-d'),
+            'date <' => $endDate->format('Y-m-d'),
         ];
 
-        return $this->expenses->findBy($criteria, $offset, $pageSize);
+        $expenses = $this->expenses->findBy($criteria, $offset, $pageSize);
+        $total = $this->expenses->countBy($criteria);
+
+        return [
+            'expenses' => $expenses,
+            'total' => $total,
+            'page' => $pageNumber,
+            'pageSize' => $pageSize,
+        ];
     }
 
     public function create(
@@ -101,56 +112,51 @@ class ExpenseService
 
     public function importFromCsv(User $user, UploadedFileInterface $csvFile): int
     {
-        $stream = $csvFile->getStream();
-        $stream->rewind();
-        $resource = $stream->detach();
+        $tempFile = tempnam(sys_get_temp_dir(), 'expense_import');
+        $csvFile->moveTo($tempFile);
 
         $importedCount = 0;
+        $validCategories = $this->getValidCategories(); // Add this method
 
         try {
             $this->pdo->beginTransaction();
 
-            $header = null;
+            if (($handle = fopen($tempFile, 'r')) !== false) {
+                $header = fgetcsv($handle); // Get header row
 
-            while (($row = fgetcsv($resource)) !== false) {
-                if (empty(array_filter($row))) {
-                    continue;
+                // Validate header
+                if (!$this->validateHeader($header)) {
+                    throw new \RuntimeException('Invalid CSV header format');
                 }
 
-                if ($header === null) {
-                    $header = $row;
-                    continue;
+                while (($row = fgetcsv($handle)) !== false) {
+                    if ($this->isRowEmpty($row)) {
+                        continue;
+                    }
+
+                    $data = array_combine($header, $row);
+
+                    // Skip rows with empty description (like your example row 5)
+                    if (empty(trim($data['description'] ?? ''))) {
+                        error_log('Skipping row with empty description');
+                        continue;
+                    }
+
+                    // Skip rows with invalid category (like your "Abracadabra" example)
+                    if (!in_array($data['category'], $validCategories)) {
+                        error_log('Skipping row with invalid category: ' . $data['category']);
+                        continue;
+                    }
+
+                    $expense = $this->createExpenseFromRow($user, $data);
+                    if ($expense === null) {
+                        continue;
+                    }
+
+                    $this->expenses->save($expense);
+                    $importedCount++;
                 }
-
-                $data = array_combine($header, $row);
-
-                if (
-                    empty($data['date']) ||
-                    empty($data['category']) ||
-                    empty($data['amount'])
-                ) {
-                    continue;
-                }
-
-                $date = \DateTimeImmutable::createFromFormat('Y-m-d', $data['date']);
-                if ($date === false) {
-                    continue;
-                }
-
-                $amount = (float) $data['amount'];
-                $description = $data['description'] ?? '';
-
-                $expense = new Expense(
-                    null,
-                    $user->id,
-                    $date,
-                    $data['category'],
-                    (int) ($amount * 100),
-                    $description,
-                );
-
-                $this->expenses->save($expense);
-                $importedCount++;
+                fclose($handle);
             }
 
             $this->pdo->commit();
@@ -158,13 +164,72 @@ class ExpenseService
             $this->pdo->rollBack();
             throw $e;
         } finally {
-            if (is_resource($resource)) {
-                fclose($resource);
+            if (file_exists($tempFile)) {
+                unlink($tempFile);
             }
         }
 
         return $importedCount;
     }
+
+    private function getValidCategories(): array
+    {
+        // Get categories from your environment config or database
+        $json = $_ENV['CATEGORY_BUDGETS_JSON'] ?? '[]';
+        $data = json_decode($json, true);
+        return is_array($data) ? array_keys($data) : [];
+    }
+
+    private function validateHeader(array $header): bool
+    {
+        $required = ['date', 'amount', 'description', 'category'];
+        foreach ($required as $field) {
+            if (!in_array($field, $header, true)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function isRowEmpty(array $row): bool
+    {
+        return empty(array_filter($row, function($value) {
+            return trim($value) !== '';
+        }));
+    }
+
+    private function createExpenseFromRow(User $user, array $data): ?Expense
+    {
+        try {
+            $date = \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $data['date'])
+                ?: \DateTimeImmutable::createFromFormat('Y-m-d', $data['date']);
+
+            if (!$date) {
+                error_log("Invalid date format: " . $data['date']);
+                return null;
+            }
+
+            // Parse amount (handles both "100.00" and "100,00")
+            $amount = str_replace(',', '.', $data['amount']);
+            if (!is_numeric($amount)) {
+                error_log("Invalid amount: " . $data['amount']);
+                return null;
+            }
+
+            return new Expense(
+                null,
+                $user->id,
+                $date,
+                $data['category'],
+                (int) round((float) $amount * 100),
+                $data['description']
+            );
+        } catch (\Throwable $e) {
+            error_log("Error creating expense from row: " . $e->getMessage());
+            return null;
+        }
+    }
+
 
     public function findById(int $id): ?Expense
     {

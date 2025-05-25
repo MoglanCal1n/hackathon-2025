@@ -79,11 +79,11 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
         $conditions = [];
 
         foreach ($criteria as $key => $value) {
-            if (preg_match('/^(\w+)\s*(>=|<=|<>|!=|=|<|>)$/', $key, $matches)) {
-                $column = $matches[1];
-                $operator = $matches[2];
-                $paramName = ':' . str_replace([' ', '>', '<', '=', '!',], '_', $key);
-                $conditions[] = "$column $operator $paramName";
+            // Handle date range operators
+            if ($key === 'date >=' || $key === 'date <') {
+                $operator = str_replace('date', '', $key);
+                $paramName = ':date' . str_replace([' ', '>', '<', '='], '_', $operator);
+                $conditions[] = "date $operator $paramName";
                 $params[$paramName] = $value;
             } else {
                 $paramName = ':' . $key;
@@ -126,8 +126,17 @@ class PdoExpenseRepository implements ExpenseRepositoryInterface
         $conditions = [];
 
         foreach ($criteria as $key => $value) {
-            $conditions[] = "$key = :$key";
-            $params[":$key"] = $value;
+            // Handle date range operators
+            if ($key === 'date >=' || $key === 'date <') {
+                $operator = str_replace('date', '', $key);
+                $paramName = ':date' . str_replace([' ', '>', '<', '='], '_', $operator);
+                $conditions[] = "date $operator $paramName";
+                $params[$paramName] = $value;
+            } else {
+                $paramName = ':' . $key;
+                $conditions[] = "$key = $paramName";
+                $params[$paramName] = $value;
+            }
         }
 
         if ($conditions) {

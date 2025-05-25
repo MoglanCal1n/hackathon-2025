@@ -47,14 +47,19 @@ class ExpenseController extends BaseController
         $month = (int)($params['month'] ?? date('m'));
         $year = (int)($params['year'] ?? date('Y'));
 
-        $expenses = $this->expenseService->list($user, $year, $month, $page, $pageSize);
+        $result = $this->expenseService->list($user, $year, $month, $page, $pageSize);
+
+        $currentYear = (int)date('Y');
+        $years = range($currentYear, $currentYear - 5);
 
         return $this->render($response, 'expenses/index.twig', [
-            'expenses' => $expenses,
-            'page' => $page,
-            'pageSize' => $pageSize,
+            'expenses' => $result['expenses'],
+            'total' => $result['total'],
+            'page' => $result['page'],
+            'pageSize' => $result['pageSize'],
             'month' => $month,
-            'year' => $year
+            'year' => $year,
+            'years' => $years,
         ]);
     }
 
@@ -107,7 +112,12 @@ class ExpenseController extends BaseController
     {
         $json = $_ENV['CATEGORY_BUDGETS_JSON'] ?? '[]';
         $data = json_decode($json, true);
-        return is_array($data) ? array_keys($data) : [];
+
+        if (!is_array($data)) {
+            return ['Groceries', 'Transport', 'Entertainment', 'Utilities'];
+        }
+
+        return array_keys($data);
     }
 
     public function edit(Request $request, Response $response, array $routeParams): Response
@@ -183,20 +193,37 @@ class ExpenseController extends BaseController
         $uploadedFiles = $request->getUploadedFiles();
         $csvFile = $uploadedFiles['csv'] ?? null;
 
-        if (!$csvFile) {
+        if (!$csvFile || $csvFile->getError() !== UPLOAD_ERR_OK) {
             return $this->render($response, 'expenses/index.twig', [
-                'error' => 'No file uploaded.',
+                'error' => 'Please upload a valid CSV file',
+            ]);
+        }
+
+        // Validate file type
+        $mimeType = $csvFile->getClientMediaType();
+        $extension = pathinfo($csvFile->getClientFilename(), PATHINFO_EXTENSION);
+
+        if (!in_array($mimeType, ['text/csv', 'text/plain']) || strtolower($extension) !== 'csv') {
+            return $this->render($response, 'expenses/index.twig', [
+                'error' => 'Only CSV files are allowed',
             ]);
         }
 
         try {
-            $count = $this->expenseService->importFromCsv($user, $csvFile);
+            $importedCount = $this->expenseService->importFromCsv($user, $csvFile);
+
+            if ($importedCount === 0) {
+                return $this->render($response, 'expenses/index.twig', [
+                    'error' => 'No valid expenses were found in the CSV file',
+                ]);
+            }
 
             return $response
-                ->withHeader('Location', '/expenses?imported=' . $count)
+                ->withHeader('Location', '/expenses?imported=' . $importedCount)
                 ->withStatus(302);
 
         } catch (\Throwable $e) {
+            error_log('Import error: ' . $e->getMessage());
             return $this->render($response, 'expenses/index.twig', [
                 'error' => 'Failed to import CSV: ' . $e->getMessage(),
             ]);
